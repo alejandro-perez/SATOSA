@@ -8,6 +8,7 @@ from fedoidc.provider import Provider
 from fedoidc.signing_service import InternalSigningService
 from fedoidc.test_utils import own_sign_keys, create_federation_entity
 from fedoidc.utils import store_signed_jwks
+from oic.oic.provider import RegistrationEndpoint
 from oic.utils import shelve_wrapper
 from oic.utils.authn.client import verify_client
 from oic.utils.authz import AuthzHandling
@@ -48,9 +49,27 @@ class FedOpenIDConnectFrontend(FrontendModule):
         fed_ent.httpcli = _op
 
         self.op = _op
+
     def _op_setup(self):
+        response_types_supported = self.config["provider"].get("response_types_supported", ["id_token"])
+        subject_types_supported = self.config["provider"].get("subject_types_supported", ["pairwise"])
+        scopes_supported = self.config["provider"].get("scopes_supported", ["openid"])
         INSECURE = True
-        CAPABILITIES = None
+        CAPABILITIES = {
+            "issuer": self.base_url,
+            "response_types_supported": response_types_supported,
+            "response_modes_supported": ["fragment", "query"],
+            "subject_types_supported": subject_types_supported,
+            "claim_types_supported": ["normal"],
+            "claims_parameter_supported": True,
+            "claims_supported": [attribute_map["openid"][0]
+                                 for attribute_map in
+                                 self.internal_attributes["attributes"].values()
+                                 if "openid" in attribute_map],
+            "request_parameter_supported": False,
+            "request_uri_parameter_supported": False,
+            "scopes_supported": scopes_supported
+        }
         DEBUG = True
 
         # Client data base
@@ -122,7 +141,6 @@ class FedOpenIDConnectFrontend(FrontendModule):
 
         return _op
 
-
     def register_endpoints(self, backend_names):
         """
         See super class satosa.frontends.base.FrontendModule
@@ -131,7 +149,9 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :raise ValueError: if more than one backend is configured
         """
         provider_config = ("^.well-known/openid-configuration$", self.provider_config)
-        url_map = [provider_config]
+        client_registration = ("^{}".format(RegistrationEndpoint.url),
+                               self.handle_client_registration)
+        url_map = [provider_config, client_registration]
         return url_map
 
     def provider_config(self, context):
@@ -143,4 +163,22 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :param context: the current context
         :return: HTTP response to the client
         """
-        return Response(str(self.op.create_fed_providerinfo()), content="application/json")
+        return self.op.providerinfo_endpoint()
+
+    def handle_client_registration(self, context):
+        """
+        Handle the OIDC dynamic client registration.
+        :type context: satosa.context.Context
+        :rtype: oic.utils.http_util.Response
+
+        :param context: the current context
+        :return: HTTP response to the client
+        """
+        req = json.dumps(context.request)
+        return self.op.registration_endpoint(req)
+
+    def handle_backend_error(self, exception):
+        pass
+
+    def handle_authn_response(self, context, internal_resp):
+        pass
