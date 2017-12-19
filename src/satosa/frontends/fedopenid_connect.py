@@ -3,12 +3,14 @@ A Federated OpenID Connect frontend module for the satosa proxy
 """
 import json
 import logging
+from urllib.parse import urlencode
 
 from fedoidc.provider import Provider
 from fedoidc.signing_service import InternalSigningService
 from fedoidc.test_utils import own_sign_keys, create_federation_entity
 from fedoidc.utils import store_signed_jwks
-from oic.oic.provider import RegistrationEndpoint
+from oic.oic import scope2claims
+from oic.oic.provider import RegistrationEndpoint, AuthorizationEndpoint
 from oic.utils import shelve_wrapper
 from oic.utils.authn.client import verify_client
 from oic.utils.authz import AuthzHandling
@@ -16,12 +18,21 @@ from oic.utils.keyio import keyjar_init
 from oic.utils.sdb import create_session_db
 from oic.utils.userinfo import UserInfo
 from oic.utils.userinfo.aa_info import AaUserInfo
+from oic.oic.message import AuthorizationRequest
 
 from satosa.frontends.base import FrontendModule
-from satosa.response import Response
+from satosa.internal_data import InternalRequest, UserIdHashType
+from satosa.logging_util import satosa_logging
+from satosa.response import Response, BadRequest
 
 logger = logging.getLogger(__name__)
 
+
+def oidc_subject_type_to_hash_type(subject_type):
+    if subject_type == "public":
+        return UserIdHashType.public
+
+    return UserIdHashType.pairwise
 
 class FedOpenIDConnectFrontend(FrontendModule):
     """
@@ -54,8 +65,9 @@ class FedOpenIDConnectFrontend(FrontendModule):
         response_types_supported = self.config["provider"].get("response_types_supported", ["id_token"])
         subject_types_supported = self.config["provider"].get("subject_types_supported", ["pairwise"])
         scopes_supported = self.config["provider"].get("scopes_supported", ["openid"])
+
         INSECURE = True
-        CAPABILITIES = {
+        self.capabilities = CAPABILITIES = {
             "issuer": self.base_url,
             "response_types_supported": response_types_supported,
             "response_modes_supported": ["fragment", "query"],
@@ -148,10 +160,19 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :rtype: list[(str, ((satosa.context.Context, Any) -> satosa.response.Response, Any))]
         :raise ValueError: if more than one backend is configured
         """
+
+        # Replacing OP's baseurl is the only way I figured out to add backend name
+        # into the endpoint URLs
+        self.op.baseurl = '{}/{}/{}'.format(self.base_url, backend_names[0], self.name)
+
         provider_config = ("^.well-known/openid-configuration$", self.provider_config)
-        client_registration = ("^{}".format(RegistrationEndpoint.url),
+        client_registration = ("^{}/{}/{}".format(backend_names[0], self.name,
+                                                  RegistrationEndpoint.url),
                                self.handle_client_registration)
-        url_map = [provider_config, client_registration]
+        authorization = ("{}/{}/{}".format(backend_names[0], self.name, AuthorizationEndpoint.url),
+                         self.handle_authn_request)
+
+        url_map = [provider_config, client_registration, authorization]
         return url_map
 
     def provider_config(self, context):
@@ -163,7 +184,9 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :param context: the current context
         :return: HTTP response to the client
         """
-        return self.op.providerinfo_endpoint()
+        config = self.op.providerinfo_endpoint()
+
+        return config
 
     def handle_client_registration(self, context):
         """
@@ -177,8 +200,89 @@ class FedOpenIDConnectFrontend(FrontendModule):
         req = json.dumps(context.request)
         return self.op.registration_endpoint(req)
 
+    def handle_authn_request(self, context):
+        """
+        Handle an authentication request and pass it on to the backend.
+        :type context: satosa.context.Context
+        :rtype: oic.utils.http_util.Response
+
+        :param context: the current context
+        :return: HTTP response to the client
+        """
+        internal_req = self._handle_authn_request(context)
+        if not isinstance(internal_req, InternalRequest):
+            return internal_req
+        return self.auth_req_callback_func(context, internal_req)
+
     def handle_backend_error(self, exception):
         pass
 
     def handle_authn_response(self, context, internal_resp):
         pass
+
+    def _handle_authn_request(self, context):
+        """
+        Parse and verify the authentication request into an internal request.
+        :type context: satosa.context.Context
+        :rtype: internal_data.InternalRequest
+
+        :param context: the current context
+        :return: the internal request
+        """
+        request = urlencode(context.request)
+
+        satosa_logging(logger, logging.DEBUG, "Authn req from client: {}".format(request),
+                       context.state)
+
+        # TODO: Need to verify, this does not look good
+        authn_req = AuthorizationRequest().deserialize(request)
+
+        # info = self.op.auth_init(auth_req)
+        # if isinstance(info, Response):
+        #     return BadRequest("Something went wrong: {}".format(str(e)))
+        # authn_req = info["areq"]
+
+        # try:
+        #     authn_req = self.provider.parse_authentication_request(request)
+        # except InvalidAuthenticationRequest as e:
+        #     satosa_logging(logger, logging.ERROR, "Error in authn req: {}".format(str(e)),
+        #                    context.state)
+        #     error_url = e.to_error_url()
+        #
+        #     if error_url:
+        #         return SeeOther(error_url)
+        #     else:
+        #         return BadRequest("Something went wrong: {}".format(str(e)))
+
+        context.state[self.name] = {"oidc_request": request}
+
+        _cid = authn_req["client_id"]
+        cinfo = self.op.cdb[str(_cid)]
+
+        # If client keys were not stored already, store them
+        if _cid not in self.op.keyjar.issuer_keys:
+            if "jwks_uri" in cinfo:
+                self.op.keyjar.issuer_keys[_cid] = []
+                self.op.keyjar.add(_cid, cinfo["jwks_uri"])
+
+        hash_type = oidc_subject_type_to_hash_type(cinfo.get("subject_type", "pairwise"))
+        client_name = cinfo.get("client_name")
+        if client_name:
+            # TODO should process client names for all languages, see OIDC Registration, Section 2.1
+            requester_name = [{"lang": "en", "text": client_name}]
+        else:
+            requester_name = None
+        internal_req = InternalRequest(hash_type, _cid, requester_name)
+
+        internal_req.approved_attributes = self.converter.to_internal_filter(
+            "openid", self._get_approved_attributes(self.capabilities["claims_supported"],
+                                                    authn_req))
+        return internal_req
+
+    def _get_approved_attributes(self, provider_supported_claims, authn_req):
+        requested_claims = list(scope2claims(authn_req["scope"]).keys())
+        if "claims" in authn_req:
+            for k in ["id_token", "userinfo"]:
+                if k in authn_req["claims"]:
+                    requested_claims.extend(authn_req["claims"][k].keys())
+        return set(provider_supported_claims).intersection(set(requested_claims))
