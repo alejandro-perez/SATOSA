@@ -45,14 +45,14 @@ class FedOpenIDConnectFrontend(FrontendModule):
         self.user_db = {}
 
         _op = self._op_setup()
-        sign_kj = own_sign_keys(conf["SIG_FILE_NAME"], _op.baseurl, conf["SIG_DEF_KEYS"])
+        sign_kj = own_sign_keys(conf["SIG_FILE_NAME"], _op.baseurl, conf["SIG_KEY_DEFS"])
         store_signed_jwks(_op.keyjar, sign_kj, conf["SIGNED_JWKS_PATH"],
                           conf["SIGNED_JWKS_ALG"], iss=_op.baseurl)
 
         fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=conf["MS_DIR"],
                                            jwks_dir=conf["JWKS_DIR"],
                                            sig_keys=sign_kj,
-                                           sig_def_keys=conf["SIG_DEF_KEYS"])
+                                           sig_def_keys=conf["SIG_KEY_DEFS"])
         fed_ent.signer.signing_service = InternalSigningService(_op.baseurl, sign_kj)
         _op.federation_entity = fed_ent
         fed_ent.httpcli = _op
@@ -94,7 +94,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
         _op.debug = self.config.get("DEBUG", False)
 
         try:
-            jwks = keyjar_init(_op, self.config["JWKS_DEF_KEYS"], kid_template="op%d")
+            jwks = keyjar_init(_op, self.config["JWKS_KEY_DEFS"], kid_template="op%d")
         except Exception as err:
             logger.error("Key setup failed: %s" % err)
             _op.key_setup("static", sig={"format": "jwk", "alg": "rsa"})
@@ -102,14 +102,6 @@ class FedOpenIDConnectFrontend(FrontendModule):
             f = open(self.config["JWKS_FILE_NAME"], "w")
             f.write(json.dumps(jwks))
             f.close()
-
-            _op.jwks_uri = "%s%s" % (_op.baseurl, self.config["JWKS_FILE_NAME"])
-
-            try:
-                # TODO: Publish this entrypoint
-                _op.signed_jwks_uri = "%s%s" % (_op.baseurl, self.config["SIGNED_JWKS_PATH"])
-            except AttributeError:
-                pass
 
             _op.keyjar.verify_ssl = kwargs["verify_ssl"]
 
@@ -137,9 +129,17 @@ class FedOpenIDConnectFrontend(FrontendModule):
                          self.token_endpoint)
         userinfo = ("{}/{}/{}".format(backend_names[0], self.name, UserinfoEndpoint.url),
                          self.userinfo_endpoint)
-        jwks = (self.config["JWKS_FILE_NAME"], self.jwks)
 
-        url_map = [provider_config, client_registration, authorization, token, userinfo, jwks]
+        jwks_uri = "{}/{}/jwks".format(self.backendname, self.name)
+        jwks = (jwks_uri, self.jwks)
+        self.op.jwks_uri = "{}/{}".format(self.base_url, jwks_uri)
+
+        signed_jwks_uri = "{}/{}/signed_jwks".format(self.backendname, self.name)
+        signed_jwks = (signed_jwks_uri, self.signed_jwks)
+        self.op.signed_jwks_uri = "{}/{}".format(self.base_url, signed_jwks_uri)
+
+        url_map = [provider_config, client_registration, authorization, token, userinfo, jwks,
+                   signed_jwks]
         return url_map
 
     def token_endpoint(self, context):
@@ -293,5 +293,19 @@ class FedOpenIDConnectFrontend(FrontendModule):
         """
         jwks = ""
         with open(self.config["JWKS_FILE_NAME"], "r") as f:
+            jwks = f.read()
+        return Response(jwks, content="application/json")
+
+    def signed_jwks(self, context):
+        """
+        Construct the JWKS document (served at /signed_jwks).
+        :type context: satosa.context.Context
+        :rtype: oic.utils.http_util.Response
+
+        :param context: the current context
+        :return: HTTP response to the client
+        """
+        jwks = ""
+        with open(self.config["SIGNED_JWKS_PATH"], "r") as f:
             jwks = f.read()
         return Response(jwks, content="application/json")

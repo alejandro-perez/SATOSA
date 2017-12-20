@@ -6,29 +6,29 @@ config:
   # Not sure what this is for
   SYM_KEY: This is my sym key 80
   # Signed OP's JWKS (to be published in signed_jwks_uri)
-  SIGNED_JWKS_PATH: 'signed_jwks.jose'
+  SIGNED_JWKS_PATH: 'fedoidc/signed_jwks.jose'
   # Which algo use for signing OP's JWKS (i.e. which key take from "signing_keys"
   SIGNED_JWKS_ALG: 'RS256'
   # File to store OP's "signing_keys". Will be auto-generated if it does not exist (see below)
-  SIG_FILE_NAME: 'sigkey.jwks'
+  SIG_FILE_NAME: 'fedoidc/sigkey.jwks'
   # Key definitions for the generation of "signing_keys".
   # They will be auto-generated if they do not exist
-  SIG_DEF_KEYS:
-    - {"type": "RSA", "key": "keys/op_key.pem", "use": ["sig"]}
+  SIG_KEY_DEFS:
+    - {"type": "RSA", "key": "fedoidc/keys/op_key.pem", "use": ["sig"]}
   # Where the OP can find signed metadata statements
   # A subfolder for "discovery" and "response". Each one contains a file per FO,
   # with the URLencoded name of the FO and containing the JWT of the signed metadata statement
-  MS_DIR: 'ms_dir'
+  MS_DIR: 'fedoidc/ms_dir'
   # Where to find FO's keys. A file per FO, with the URLencoded FO's name as filename,
   # containing JWKS for that FO
-  JWKS_DIR: 'jwks_dir'
+  JWKS_DIR: 'fedoidc/jwks_dir'
   # File to store OP's JWSK. Will be auto_generated if it does not exist
-  JWKS_FILE_NAME: "jwks.json"
+  JWKS_FILE_NAME: "fedoidc/jwks.json"
   # Key definitions for the generation of OP's JWKS.
   # They will be auto-generated if they do not exist
-  JWKS_DEF_KEYS:
-    - {"type": "RSA", "key": "keys/enc_key.pem", "use": ["enc"]}
-    - {"type": "RSA", "key": "keys/sig_key.pem", "use": ["sig"]}
+  JWKS_KEY_DEFS:
+    - {"type": "RSA", "key": "fedoidc/keys/enc_key.pem", "use": ["enc"]}
+    - {"type": "RSA", "key": "fedoidc/keys/sig_key.pem", "use": ["sig"]}
 
   capabilities:
     response_types_supported: ["code", "id_token token"]
