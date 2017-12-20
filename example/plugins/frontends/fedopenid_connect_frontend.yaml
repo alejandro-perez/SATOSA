@@ -5,32 +5,49 @@ config:
   DEBUG: False
   # Not sure what this is for
   SYM_KEY: This is my sym key 80
-  # Signed OP's JWKS (to be published in signed_jwks_uri)
-  SIGNED_JWKS_PATH: 'fedoidc/signed_jwks.jose'
-  # Which algo use for signing OP's JWKS (i.e. which key take from "signing_keys"
-  SIGNED_JWKS_ALG: 'RS256'
-  # File to store OP's "signing_keys". Will be auto-generated if it does not exist (see below)
-  SIG_FILE_NAME: 'fedoidc/sigkey.jwks'
-  # Key definitions for the generation of "signing_keys".
-  # They will be auto-generated if they do not exist
-  SIG_KEY_DEFS:
-    - {"type": "RSA", "key": "fedoidc/keys/op_key.pem", "use": ["sig"]}
-  # Where the OP can find signed metadata statements
-  # A subfolder for "discovery" and "response". Each one contains a file per FO,
-  # with the URLencoded name of the FO and containing the JWT of the signed metadata statement
-  MS_DIR: 'fedoidc/ms_dir'
-  # Where to find FO's keys. A file per FO, with the URLencoded FO's name as filename,
-  # containing JWKS for that FO
-  JWKS_DIR: 'fedoidc/jwks_dir'
-  # File to store OP's JWSK. Will be auto_generated if it does not exist
-  JWKS_FILE_NAME: "fedoidc/jwks.json"
-  # Key definitions for the generation of OP's JWKS.
-  # They will be auto-generated if they do not exist
-  JWKS_KEY_DEFS:
-    - {"type": "RSA", "key": "fedoidc/keys/enc_key.pem", "use": ["enc"]}
-    - {"type": "RSA", "key": "fedoidc/keys/sig_key.pem", "use": ["sig"]}
 
   capabilities:
     response_types_supported: ["code", "id_token token"]
     subject_types_supported: ["pairwise"]
     scopes_supported: ["openid", "email"]
+
+  # Configuration for OP's standard OIDC JWKS
+  jwks:
+    # File to store OP's JWSK. Will be auto_generated if it does not exist
+    path: "fedoidc/jwks.json"
+    # Key definitions for the generation of OP's JWKS.
+    # They will be auto-generated if they do not exist
+    key_defs:
+      - {"type": "RSA", "key": "fedoidc/keys/jwks_enc_key.pem", "use": ["enc"]}
+      - {"type": "RSA", "key": "fedoidc/keys/jwks_sig_key.pem", "use": ["sig"]}
+
+  # Configuration of federation
+  federation:
+    # signing_keys configuration
+    signing_keys:
+      # File to store OP's "signing_keys". Will be auto-generated if it does not exist.
+      path: 'fedoidc/signing_key.jwks'
+      # Key definitions for the generation of "signing_keys".
+      # They will be auto-generated if they do not exist
+      key_defs:
+        - {"type": "RSA", "key": "fedoidc/keys/signing_key.pem", "use": ["sig"]}
+
+    # signed_jwks configuration
+    signed_jwks:
+      # Path to store the signed version of the standard JWKS
+      path: 'fedoidc/signed_jwks.jose'
+      # Which algo use for signing OP's JWKS
+      sign_alg: 'RS256'
+
+    # FO keys configuration
+    fo_keys:
+      # A file per FO JWKS, with URLencoded FO's name as filename
+      path: 'fedoidc/fo_keys'
+
+    # Signed metadata statement configuration
+    signed_ms:
+      # Where the OP can find signed metadata statements
+      # A subfolder for "discovery" and "response". Each one contains a file per FO,
+      # with the URLencoded name of the FO and containing the JWT of the signed metadata statement
+      path: 'fedoidc/signed_ms'
+

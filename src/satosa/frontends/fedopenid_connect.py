@@ -45,14 +45,17 @@ class FedOpenIDConnectFrontend(FrontendModule):
         self.user_db = {}
 
         _op = self._op_setup()
-        sign_kj = own_sign_keys(conf["SIG_FILE_NAME"], _op.baseurl, conf["SIG_KEY_DEFS"])
-        store_signed_jwks(_op.keyjar, sign_kj, conf["SIGNED_JWKS_PATH"],
-                          conf["SIGNED_JWKS_ALG"], iss=_op.baseurl)
+        fconf = conf["federation"]
+        sign_kj = own_sign_keys(fconf["signing_keys"]["path"], _op.baseurl,
+                                fconf["signing_keys"]["key_defs"])
 
-        fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=conf["MS_DIR"],
-                                           jwks_dir=conf["JWKS_DIR"],
+        store_signed_jwks(_op.keyjar, sign_kj, fconf["signed_jwks"]["path"],
+                          fconf["signed_jwks"]["sign_alg"], iss=_op.baseurl)
+
+        fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=fconf["signed_ms"]["path"],
+                                           jwks_dir=fconf["fo_keys"]["path"],
                                            sig_keys=sign_kj,
-                                           sig_def_keys=conf["SIG_KEY_DEFS"])
+                                           sig_def_keys=fconf["signing_keys"]["key_defs"])
         fed_ent.signer.signing_service = InternalSigningService(_op.baseurl, sign_kj)
         _op.federation_entity = fed_ent
         fed_ent.httpcli = _op
@@ -94,12 +97,12 @@ class FedOpenIDConnectFrontend(FrontendModule):
         _op.debug = self.config.get("DEBUG", False)
 
         try:
-            jwks = keyjar_init(_op, self.config["JWKS_KEY_DEFS"], kid_template="op%d")
+            jwks = keyjar_init(_op, self.config["jwks"]["key_defs"], kid_template="op%d")
         except Exception as err:
             logger.error("Key setup failed: %s" % err)
             _op.key_setup("static", sig={"format": "jwk", "alg": "rsa"})
         else:
-            f = open(self.config["JWKS_FILE_NAME"], "w")
+            f = open(self.config["jwks"]["path"], "w")
             f.write(json.dumps(jwks))
             f.close()
 
@@ -292,7 +295,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :return: HTTP response to the client
         """
         jwks = ""
-        with open(self.config["JWKS_FILE_NAME"], "r") as f:
+        with open(self.config["jwks"]["path"], "r") as f:
             jwks = f.read()
         return Response(jwks, content="application/json")
 
@@ -306,6 +309,6 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :return: HTTP response to the client
         """
         jwks = ""
-        with open(self.config["SIGNED_JWKS_PATH"], "r") as f:
+        with open(self.config["federation"]["signed_jwks"]["path"], "r") as f:
             jwks = f.read()
         return Response(jwks, content="application/json")
