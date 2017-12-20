@@ -99,17 +99,15 @@ class FedOpenIDConnectFrontend(FrontendModule):
             kwargs["capabilities"] = CAPABILITIES
 
         _sdb = create_session_db(_issuer, 'automover', '430X', {})
-        _op = Provider(_issuer, _sdb, cdb, None, {}, authz, verify_client, None, **kwargs)
-        _op.baseurl = _issuer
+        _op = Provider(_issuer, _sdb, cdb, None, UserInfo(self.user_db), authz, verify_client, None, **kwargs)
 
-        _op.userinfo = UserInfo(self.user_db)
         try:
-            _op.cookie_ttl = self.config["COOKIETTL"]
+            _op.cookie_ttl =  4 * 60  # 4 hours
         except AttributeError:
             pass
 
         try:
-            _op.cookie_name = self.config["COOKIENAME"]
+            _op.cookie_name = 'fedoic_cookie'
         except AttributeError:
             pass
 
@@ -128,6 +126,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
             _op.jwks_uri = "%s%s" % (_op.baseurl, self.config["JWKS_FILE_NAME"])
 
             try:
+                # TODO: Publish this entrypoint
                 _op.signed_jwks_uri = "%s%s" % (_op.baseurl, self.config["SIGNED_JWKS_PATH"])
             except AttributeError:
                 pass
