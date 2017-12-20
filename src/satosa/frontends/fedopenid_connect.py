@@ -53,7 +53,6 @@ class FedOpenIDConnectFrontend(FrontendModule):
 
         fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=conf["MS_DIR"],
                                            jwks_dir=conf["JWKS_DIR"],
-                                           sup=conf["SUPERIOR"],
                                            sig_keys=sign_kj,
                                            sig_def_keys=conf["SIG_DEF_KEYS"])
         fed_ent.signer.signing_service = InternalSigningService(_op.baseurl, sign_kj)

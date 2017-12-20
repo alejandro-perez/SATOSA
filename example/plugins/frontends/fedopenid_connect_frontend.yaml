@@ -13,7 +13,6 @@ config:
     - {"type": "RSA", "key": "keys/op_key.pem", "use": ["sig"]}
   MS_DIR: 'ms_dir'
   JWKS_DIR: 'jwks_dir'
-  SUPERIOR: 'https://sunet.se'
   JWKS_FILE_NAME: "jwks.json"
   keys:
     - {"type": "RSA", "key": "keys/enc_key.pem", "use": ["enc"]}
