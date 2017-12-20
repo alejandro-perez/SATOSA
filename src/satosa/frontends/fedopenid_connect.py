@@ -40,14 +40,12 @@ class FedOpenIDConnectFrontend(FrontendModule):
     """
 
     def __init__(self, auth_req_callback_func, internal_attributes, conf, base_url, name):
-        SIGKEY_NAME = 'sigkey.jwks'
-
         super().__init__(auth_req_callback_func, internal_attributes, base_url, name)
         self.config = conf
         self.user_db = {}
 
         _op = self._op_setup()
-        sign_kj = own_sign_keys(SIGKEY_NAME, _op.baseurl, conf["SIG_DEF_KEYS"])
+        sign_kj = own_sign_keys(conf["SIG_FILE_NAME"], _op.baseurl, conf["SIG_DEF_KEYS"])
         store_signed_jwks(_op.keyjar, sign_kj, conf["SIGNED_JWKS_PATH"],
                           conf["SIGNED_JWKS_ALG"], iss=_op.baseurl)
 
@@ -91,12 +89,12 @@ class FedOpenIDConnectFrontend(FrontendModule):
                   "capabilities": self.capabilities}
         _op = Provider(_issuer, _sdb, cdb, None, UserInfo(self.user_db), AuthzHandling(),
                        verify_client, self.config["SYM_KEY"], **kwargs)
-        _op.cookie_ttl =  4 * 60  # 4 hours
+        _op.cookie_ttl = 4 * 60  # 4 hours
         _op.cookie_name = 'fedoic_cookie'
         _op.debug = self.config.get("DEBUG", False)
 
         try:
-            jwks = keyjar_init(_op, self.config["keys"], kid_template="op%d")
+            jwks = keyjar_init(_op, self.config["JWKS_DEF_KEYS"], kid_template="op%d")
         except Exception as err:
             logger.error("Key setup failed: %s" % err)
             _op.key_setup("static", sig={"format": "jwk", "alg": "rsa"})
