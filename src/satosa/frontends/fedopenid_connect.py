@@ -18,7 +18,7 @@ from oic.utils.authz import AuthzHandling
 from oic.utils.keyio import keyjar_init
 from oic.utils.sdb import create_session_db, AuthnEvent
 from oic.utils.userinfo import UserInfo
-from oic.oic.message import AuthorizationRequest
+from oic.oic.message import AuthorizationRequest, AuthorizationErrorResponse
 
 from satosa.frontends.base import FrontendModule
 from satosa.internal_data import InternalRequest, UserIdHashType
@@ -256,7 +256,23 @@ class FedOpenIDConnectFrontend(FrontendModule):
         return self.auth_req_callback_func(context, internal_req)
 
     def handle_backend_error(self, exception):
-        pass
+        """
+        See super class satosa.frontends.base.FrontendModule
+        :type exception: satosa.exception.SATOSAError
+        :rtype: oic.utils.http_util.Response
+        """
+        auth_req = AuthorizationRequest().deserialize(exception.state[self.name]["oidc_request"])
+        # If the client sent us a state parameter, we should reflect it back according to the spec
+        if 'state' in auth_req:
+            error_resp = AuthorizationErrorResponse(error="access_denied",
+                                                    error_description=exception.message,
+                                                    state=auth_req['state'])
+        else:
+            error_resp = AuthorizationErrorResponse(error="access_denied",
+                                                    error_description=exception.message)
+        satosa_logging(logger, logging.DEBUG, exception.message, exception.state)
+        use_fragment_encoding = (auth_req['response_type'] == ['code'])
+        return SeeOther(error_resp.request(auth_req["redirect_uri"], use_fragment_encoding))
 
     def handle_authn_response(self, context, internal_resp):
         """
