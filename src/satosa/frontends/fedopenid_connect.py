@@ -62,16 +62,13 @@ class FedOpenIDConnectFrontend(FrontendModule):
         self.op = _op
 
     def _op_setup(self):
-        response_types_supported = self.config["provider"].get("response_types_supported", ["id_token"])
-        subject_types_supported = self.config["provider"].get("subject_types_supported", ["pairwise"])
-        scopes_supported = self.config["provider"].get("scopes_supported", ["openid"])
-
-        INSECURE = True
-        self.capabilities = CAPABILITIES = {
+        self.capabilities = {
             "issuer": self.base_url,
-            "response_types_supported": response_types_supported,
+            "response_types_supported": self.config["capabilities"].get("response_types_supported",
+                                                                        ["id_token"]),
             "response_modes_supported": ["fragment", "query"],
-            "subject_types_supported": subject_types_supported,
+            "subject_types_supported": self.config["capabilities"].get("subject_types_supported",
+                                                                       ["pairwise"]),
             "claim_types_supported": ["normal"],
             "claims_parameter_supported": True,
             "claims_supported": [attribute_map["openid"][0]
@@ -80,38 +77,23 @@ class FedOpenIDConnectFrontend(FrontendModule):
                                  if "openid" in attribute_map],
             "request_parameter_supported": False,
             "request_uri_parameter_supported": False,
-            "scopes_supported": scopes_supported
+            "scopes_supported": self.config["capabilities"].get("scopes_supported", ["openid"])
         }
-        DEBUG = True
-
         # Client data base
         cdb = shelve_wrapper.open("client_db")
         _issuer = self.base_url
         if _issuer[-1] != '/':
             _issuer += '/'
 
-        # dealing with authorization
-        authz = AuthzHandling()
-
-        kwargs = {"verify_ssl": not INSECURE}
-        # Should I care about verifying the certificates used by other entities
-        if CAPABILITIES:
-            kwargs["capabilities"] = CAPABILITIES
-
         _sdb = create_session_db(_issuer, 'automover', '430X', {})
-        _op = Provider(_issuer, _sdb, cdb, None, UserInfo(self.user_db), authz, verify_client, None, **kwargs)
 
-        try:
-            _op.cookie_ttl =  4 * 60  # 4 hours
-        except AttributeError:
-            pass
-
-        try:
-            _op.cookie_name = 'fedoic_cookie'
-        except AttributeError:
-            pass
-
-        _op.debug = DEBUG
+        kwargs = {"verify_ssl": self.config.get("VERIFY_SSL", True),
+                  "capabilities": self.capabilities}
+        _op = Provider(_issuer, _sdb, cdb, None, UserInfo(self.user_db), AuthzHandling(),
+                       verify_client, self.config["SYM_KEY"], **kwargs)
+        _op.cookie_ttl =  4 * 60  # 4 hours
+        _op.cookie_name = 'fedoic_cookie'
+        _op.debug = self.config.get("DEBUG", False)
 
         try:
             jwks = keyjar_init(_op, self.config["keys"], kid_template="op%d")

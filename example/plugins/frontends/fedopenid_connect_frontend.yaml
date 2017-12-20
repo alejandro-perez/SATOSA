@@ -1,6 +1,9 @@
 module: satosa.frontends.fedopenid_connect.FedOpenIDConnectFrontend
-name: FEDOIDC
+name: fedoidc
 config:
+  VERIFY_SSL: True
+  DEBUG: False
+
   SYM_KEY: This is my sym key 80
   SIGNED_JWKS_PATH: 'signed_jwks.jose'
   SIGNED_JWKS_ALG: 'RS256'
@@ -15,7 +18,7 @@ config:
 
   #db_uri: mongodb://db.example.com # optional: only support MongoDB, will default to in-memory storage if not specified
   # client_db_path: client.json
-  provider:
+  capabilities:
     response_types_supported: ["code", "id_token token"]
     subject_types_supported: ["pairwise"]
     scopes_supported: ["openid", "email"]
