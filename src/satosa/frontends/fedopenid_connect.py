@@ -23,7 +23,7 @@ from oic.oic.message import AuthorizationRequest, AuthorizationErrorResponse
 from satosa.frontends.base import FrontendModule
 from satosa.internal_data import InternalRequest, UserIdHashType
 from satosa.logging_util import satosa_logging
-from satosa.response import Response, BadRequest, SeeOther
+from satosa.response import Response, SeeOther
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,6 @@ class FedOpenIDConnectFrontend(FrontendModule):
         fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=conf["MS_DIR"],
                                            jwks_dir=conf["JWKS_DIR"],
                                            sup=conf["SUPERIOR"],
-                                           fo_jwks=conf["FO_JWKS"],
                                            sig_keys=sign_kj,
                                            sig_def_keys=conf["SIG_DEF_KEYS"])
         fed_ent.signer.signing_service = InternalSigningService(_op.baseurl, sign_kj)

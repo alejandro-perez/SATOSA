@@ -1,0 +1,31 @@
+module: satosa.frontends.fedopenid_connect.FedOpenIDConnectFrontend
+name: FEDOIDC
+config:
+  signing_key_path: key.pem
+  SYM_KEY: This is my sym key 80
+  USERINFO: SIMPLE
+  USERDB: {}
+  COOKIETTL: 4 * 60  # 4 hours
+  COOKIENAME: 'pyoic'
+  SIGNED_JWKS_PATH: 'static/signed_jwks.jose'
+  SIGNED_JWKS_ALG: 'RS256'
+  SIG_DEF_KEYS:
+    - {"type": "RSA", "key": "keys/op_key.pem", "use": ["sig"]}
+  MS_DIR: 'ms_dir'
+  JWKS_DIR: 'jwks_dir'
+  SUPERIOR: 'https://sunet.se'
+  JWKS_FILE_NAME: "jwks.json"
+  keys:
+    - {"type": "RSA", "key": "keys/enc_key.pem", "use": ["enc"]}
+    - {"type": "RSA", "key": "keys/sig_key.pem", "use": ["sig"]}
+    - {"type": "EC", "crv": "P-256", "use": ["sig"]}
+    - {"type": "EC", "crv": "P-256", "use": ["enc"]}
+
+
+  #db_uri: mongodb://db.example.com # optional: only support MongoDB, will default to in-memory storage if not specified
+  # client_db_path: client.json
+  provider:
+    client_registration_supported: Yes
+    response_types_supported: ["code", "id_token token"]
+    subject_types_supported: ["pairwise"]
+    scopes_supported: ["openid", "email"]
