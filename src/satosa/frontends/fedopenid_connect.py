@@ -173,8 +173,10 @@ class FedOpenIDConnectFrontend(FrontendModule):
                          self.handle_authn_request)
         token = ("{}/{}/{}".format(backend_names[0], self.name, TokenEndpoint.url),
                          self.token_endpoint)
+        jwks = ("^{}".format(self.op.jwks_uri), self.jwks)
+        jwks = (self.config["JWKS_FILE_NAME"], self.jwks)
 
-        url_map = [provider_config, client_registration, authorization, token]
+        url_map = [provider_config, client_registration, authorization, token, jwks]
         return url_map
 
     def token_endpoint(self, context):
@@ -327,3 +329,17 @@ class FedOpenIDConnectFrontend(FrontendModule):
                 if k in authn_req["claims"]:
                     requested_claims.extend(authn_req["claims"][k].keys())
         return set(provider_supported_claims).intersection(set(requested_claims))
+
+    def jwks(self, context):
+        """
+        Construct the JWKS document (served at /jwks).
+        :type context: satosa.context.Context
+        :rtype: oic.utils.http_util.Response
+
+        :param context: the current context
+        :return: HTTP response to the client
+        """
+        jwks = ""
+        with open(self.config["JWKS_FILE_NAME"], "r") as f:
+            jwks = f.read()
+        return Response(jwks, content="application/json")
