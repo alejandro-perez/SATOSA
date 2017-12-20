@@ -13,13 +13,11 @@ from oic.oic import scope2claims
 from oic.oic.provider import RegistrationEndpoint, AuthorizationEndpoint, TokenEndpoint, \
     UserinfoEndpoint
 from oic.utils import shelve_wrapper
-from oic.utils.authn.authn_context import AuthnBroker
 from oic.utils.authn.client import verify_client
 from oic.utils.authz import AuthzHandling
 from oic.utils.keyio import keyjar_init
 from oic.utils.sdb import create_session_db, AuthnEvent
 from oic.utils.userinfo import UserInfo
-from oic.utils.userinfo.aa_info import AaUserInfo
 from oic.oic.message import AuthorizationRequest
 
 from satosa.frontends.base import FrontendModule
@@ -97,31 +95,16 @@ class FedOpenIDConnectFrontend(FrontendModule):
         # dealing with authorization
         authz = AuthzHandling()
 
-        kwargs = {}
-
+        kwargs = {"verify_ssl": not INSECURE}
         # Should I care about verifying the certificates used by other entities
-        kwargs["verify_ssl"] = not INSECURE
-
         if CAPABILITIES:
             kwargs["capabilities"] = CAPABILITIES
 
         _sdb = create_session_db(_issuer, 'automover', '430X', {})
-        _op = Provider(_issuer, _sdb, cdb, None, {},
-                           authz, verify_client, self.config["SYM_KEY"], **kwargs)
+        _op = Provider(_issuer, _sdb, cdb, None, {}, authz, verify_client, None, **kwargs)
         _op.baseurl = _issuer
 
         _op.userinfo = UserInfo(self.user_db)
-        # if self.config["USERINFO"] == "SIMPLE":
-        #     # User info is a simple dictionary in this case statically defined in
-        #     # the configuration file
-        #     _op.userinfo = UserInfo(self.config["USERDB"])
-        # elif self.config["USERINFO"] == "SAML":
-        #     _op.userinfo = UserInfo(self.config["SAML"])
-        # elif self.config["USERINFO"] == "AA":
-        #     _op.userinfo = AaUserInfo(self.config["SP_CONFIG"], _issuer, self.config["SAML"])
-        # else:
-        #     raise Exception("Unsupported userinfo source")
-
         try:
             _op.cookie_ttl = self.config["COOKIETTL"]
         except AttributeError:
@@ -213,9 +196,10 @@ class FedOpenIDConnectFrontend(FrontendModule):
 
         # Replacing OP's baseurl is the only way I figured out to add backend name
         # into the endpoint URLs
+        backup = self.op.baseurl
         self.op.baseurl = '{}/{}/{}'.format(self.base_url, self.backendname, self.name)
         config = self.op.providerinfo_endpoint()
-        self.op.baseurl = self.base_url
+        self.op.baseurl = backup
 
         return config
 
