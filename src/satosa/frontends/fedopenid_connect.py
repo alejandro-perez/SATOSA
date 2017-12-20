@@ -46,6 +46,8 @@ class FedOpenIDConnectFrontend(FrontendModule):
 
         super().__init__(auth_req_callback_func, internal_attributes, base_url, name)
         self.config = conf
+        self.user_db = {}
+
         _op = self._op_setup()
         sign_kj = own_sign_keys(SIGKEY_NAME, _op.baseurl, conf["SIG_DEF_KEYS"])
         store_signed_jwks(_op.keyjar, sign_kj, conf["SIGNED_JWKS_PATH"],
@@ -61,7 +63,6 @@ class FedOpenIDConnectFrontend(FrontendModule):
         _op.federation_entity = fed_ent
         fed_ent.httpcli = _op
 
-        self.user_db = {}
         self.op = _op
 
     def _op_setup(self):
@@ -105,11 +106,11 @@ class FedOpenIDConnectFrontend(FrontendModule):
             kwargs["capabilities"] = CAPABILITIES
 
         _sdb = create_session_db(_issuer, 'automover', '430X', {})
-        _op = Provider(_issuer, _sdb, cdb, None, None,
+        _op = Provider(_issuer, _sdb, cdb, None, {},
                            authz, verify_client, self.config["SYM_KEY"], **kwargs)
         _op.baseurl = _issuer
 
-        _op.userinfo = UserInfo({})
+        _op.userinfo = UserInfo(self.user_db)
         # if self.config["USERINFO"] == "SIMPLE":
         #     # User info is a simple dictionary in this case statically defined in
         #     # the configuration file
