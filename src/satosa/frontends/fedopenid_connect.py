@@ -71,6 +71,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
             "subject_types_supported": self.config["capabilities"].get("subject_types_supported",
                                                                        ["pairwise"]),
             "claim_types_supported": ["normal"],
+            "id_token_signing_alg_values_supported": ["none"],
             "claims_parameter_supported": True,
             "claims_supported": [attribute_map["openid"][0]
                                  for attribute_map in
@@ -168,7 +169,8 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :return: HTTP response to the client
         """
         req = urlencode(context.request)
-        return self.op.userinfo_endpoint(req)
+        authn = context.request_authorization
+        return self.op.userinfo_endpoint(req, authn=authn)
 
     def provider_config(self, context):
         """
