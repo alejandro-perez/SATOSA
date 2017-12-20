@@ -175,14 +175,20 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :return: HTTP response to the client
         """
         req = urlencode(context.request)
-        resp = self.op.token_endpoint(req, context.request_authorization)
-        return resp
+        authn = context.request_authorization
+        return self.op.token_endpoint(req, authn)
 
     def userinfo_endpoint(self, context):
-        authn = context.request_authorization
+        """
+        Handle userinfo requests (served at /userinfo).
+        :type context: satosa.context.Context
+        :rtype: oic.utils.http_util.Response
+
+        :param context: the current context
+        :return: HTTP response to the client
+        """
         req = urlencode(context.request)
-        resp = self.op.userinfo_endpoint(req)
-        return resp
+        return self.op.userinfo_endpoint(req)
 
     def provider_config(self, context):
         """
@@ -194,13 +200,12 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :return: HTTP response to the client
         """
 
-        # Replacing OP's baseurl is the only way I figured out to add backend name
+        # Temporarily replacing OP's baseurl is the only way I figured out to add backend name
         # into the endpoint URLs
         backup = self.op.baseurl
         self.op.baseurl = '{}/{}/{}'.format(self.base_url, self.backendname, self.name)
         config = self.op.providerinfo_endpoint()
         self.op.baseurl = backup
-
         return config
 
     def handle_client_registration(self, context):
@@ -224,9 +229,30 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :param context: the current context
         :return: HTTP response to the client
         """
-        internal_req = self._handle_authn_request(context)
-        if not isinstance(internal_req, InternalRequest):
-            return internal_req
+        request = urlencode(context.request)
+        satosa_logging(logger, logging.DEBUG, "Authn req from client: {}".format(request),
+                       context.state)
+        context.state[self.name] = {"oidc_request": request}
+
+        authn_req = AuthorizationRequest().deserialize(request)
+        _cid = authn_req["client_id"]
+        cinfo = self.op.cdb[str(_cid)]
+
+        # If client keys were not stored already, store them
+        if _cid not in self.op.keyjar.issuer_keys:
+            if "jwks_uri" in cinfo:
+                self.op.keyjar.issuer_keys[_cid] = []
+                self.op.keyjar.add(_cid, cinfo["jwks_uri"])
+
+        hash_type = oidc_subject_type_to_hash_type(cinfo.get("subject_type", "pairwise"))
+
+        client_name = cinfo.get("client_name")
+        requester_name = [{"lang": "en", "text": client_name}] if client_name else None
+
+        internal_req = InternalRequest(hash_type, _cid, requester_name)
+        internal_req.approved_attributes = self.converter.to_internal_filter(
+            "openid", self._get_approved_attributes(authn_req))
+
         return self.auth_req_callback_func(context, internal_req)
 
     def handle_backend_error(self, exception):
@@ -254,66 +280,8 @@ class FedOpenIDConnectFrontend(FrontendModule):
         del context.state[self.name]
         return authnres
 
-    def _handle_authn_request(self, context):
-        """
-        Parse and verify the authentication request into an internal request.
-        :type context: satosa.context.Context
-        :rtype: internal_data.InternalRequest
-
-        :param context: the current context
-        :return: the internal request
-        """
-        request = urlencode(context.request)
-
-        satosa_logging(logger, logging.DEBUG, "Authn req from client: {}".format(request),
-                       context.state)
-
-        # TODO: Need to verify, this does not look good
-        authn_req = AuthorizationRequest().deserialize(request)
-
-        # info = self.op.auth_init(auth_req)
-        # if isinstance(info, Response):
-        #     return BadRequest("Something went wrong: {}".format(str(e)))
-        # authn_req = info["areq"]
-
-        # try:
-        #     authn_req = self.provider.parse_authentication_request(request)
-        # except InvalidAuthenticationRequest as e:
-        #     satosa_logging(logger, logging.ERROR, "Error in authn req: {}".format(str(e)),
-        #                    context.state)
-        #     error_url = e.to_error_url()
-        #
-        #     if error_url:
-        #         return SeeOther(error_url)
-        #     else:
-        #         return BadRequest("Something went wrong: {}".format(str(e)))
-
-        context.state[self.name] = {"oidc_request": request}
-
-        _cid = authn_req["client_id"]
-        cinfo = self.op.cdb[str(_cid)]
-
-        # If client keys were not stored already, store them
-        if _cid not in self.op.keyjar.issuer_keys:
-            if "jwks_uri" in cinfo:
-                self.op.keyjar.issuer_keys[_cid] = []
-                self.op.keyjar.add(_cid, cinfo["jwks_uri"])
-
-        hash_type = oidc_subject_type_to_hash_type(cinfo.get("subject_type", "pairwise"))
-        client_name = cinfo.get("client_name")
-        if client_name:
-            # TODO should process client names for all languages, see OIDC Registration, Section 2.1
-            requester_name = [{"lang": "en", "text": client_name}]
-        else:
-            requester_name = None
-        internal_req = InternalRequest(hash_type, _cid, requester_name)
-
-        internal_req.approved_attributes = self.converter.to_internal_filter(
-            "openid", self._get_approved_attributes(self.capabilities["claims_supported"],
-                                                    authn_req))
-        return internal_req
-
-    def _get_approved_attributes(self, provider_supported_claims, authn_req):
+    def _get_approved_attributes(self, authn_req):
+        provider_supported_claims = self.capabilities["claims_supported"]
         requested_claims = list(scope2claims(authn_req["scope"]).keys())
         if "claims" in authn_req:
             for k in ["id_token", "userinfo"]:
