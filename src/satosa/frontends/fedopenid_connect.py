@@ -10,7 +10,8 @@ from fedoidc.signing_service import InternalSigningService
 from fedoidc.test_utils import own_sign_keys, create_federation_entity
 from fedoidc.utils import store_signed_jwks
 from oic.oic import scope2claims
-from oic.oic.provider import RegistrationEndpoint, AuthorizationEndpoint, TokenEndpoint
+from oic.oic.provider import RegistrationEndpoint, AuthorizationEndpoint, TokenEndpoint, \
+    UserinfoEndpoint
 from oic.utils import shelve_wrapper
 from oic.utils.authn.authn_context import AuthnBroker
 from oic.utils.authn.client import verify_client
@@ -32,8 +33,8 @@ logger = logging.getLogger(__name__)
 def oidc_subject_type_to_hash_type(subject_type):
     if subject_type == "public":
         return UserIdHashType.public
-
     return UserIdHashType.pairwise
+
 
 class FedOpenIDConnectFrontend(FrontendModule):
     """
@@ -173,10 +174,11 @@ class FedOpenIDConnectFrontend(FrontendModule):
                          self.handle_authn_request)
         token = ("{}/{}/{}".format(backend_names[0], self.name, TokenEndpoint.url),
                          self.token_endpoint)
-        jwks = ("^{}".format(self.op.jwks_uri), self.jwks)
+        userinfo = ("{}/{}/{}".format(backend_names[0], self.name, UserinfoEndpoint.url),
+                         self.userinfo_endpoint)
         jwks = (self.config["JWKS_FILE_NAME"], self.jwks)
 
-        url_map = [provider_config, client_registration, authorization, token, jwks]
+        url_map = [provider_config, client_registration, authorization, token, userinfo, jwks]
         return url_map
 
     def token_endpoint(self, context):
@@ -190,9 +192,13 @@ class FedOpenIDConnectFrontend(FrontendModule):
         """
         req = urlencode(context.request)
         resp = self.op.token_endpoint(req, context.request_authorization)
-
         return resp
 
+    def userinfo_endpoint(self, context):
+        authn = context.request_authorization
+        req = urlencode(context.request)
+        resp = self.op.userinfo_endpoint(req)
+        return resp
 
     def provider_config(self, context):
         """
