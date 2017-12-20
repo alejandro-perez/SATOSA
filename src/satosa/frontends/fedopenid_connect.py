@@ -10,12 +10,13 @@ from fedoidc.signing_service import InternalSigningService
 from fedoidc.test_utils import own_sign_keys, create_federation_entity
 from fedoidc.utils import store_signed_jwks
 from oic.oic import scope2claims
-from oic.oic.provider import RegistrationEndpoint, AuthorizationEndpoint
+from oic.oic.provider import RegistrationEndpoint, AuthorizationEndpoint, TokenEndpoint
 from oic.utils import shelve_wrapper
+from oic.utils.authn.authn_context import AuthnBroker
 from oic.utils.authn.client import verify_client
 from oic.utils.authz import AuthzHandling
 from oic.utils.keyio import keyjar_init
-from oic.utils.sdb import create_session_db
+from oic.utils.sdb import create_session_db, AuthnEvent
 from oic.utils.userinfo import UserInfo
 from oic.utils.userinfo.aa_info import AaUserInfo
 from oic.oic.message import AuthorizationRequest
@@ -23,7 +24,7 @@ from oic.oic.message import AuthorizationRequest
 from satosa.frontends.base import FrontendModule
 from satosa.internal_data import InternalRequest, UserIdHashType
 from satosa.logging_util import satosa_logging
-from satosa.response import Response, BadRequest
+from satosa.response import Response, BadRequest, SeeOther
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
         _op.federation_entity = fed_ent
         fed_ent.httpcli = _op
 
+        self.user_db = {}
         self.op = _op
 
     def _op_setup(self):
@@ -106,16 +108,17 @@ class FedOpenIDConnectFrontend(FrontendModule):
                            authz, verify_client, self.config["SYM_KEY"], **kwargs)
         _op.baseurl = _issuer
 
-        if self.config["USERINFO"] == "SIMPLE":
-            # User info is a simple dictionary in this case statically defined in
-            # the configuration file
-            _op.userinfo = UserInfo(self.config["USERDB"])
-        elif self.config["USERINFO"] == "SAML":
-            _op.userinfo = UserInfo(self.config["SAML"])
-        elif self.config["USERINFO"] == "AA":
-            _op.userinfo = AaUserInfo(self.config["SP_CONFIG"], _issuer, self.config["SAML"])
-        else:
-            raise Exception("Unsupported userinfo source")
+        _op.userinfo = UserInfo({})
+        # if self.config["USERINFO"] == "SIMPLE":
+        #     # User info is a simple dictionary in this case statically defined in
+        #     # the configuration file
+        #     _op.userinfo = UserInfo(self.config["USERDB"])
+        # elif self.config["USERINFO"] == "SAML":
+        #     _op.userinfo = UserInfo(self.config["SAML"])
+        # elif self.config["USERINFO"] == "AA":
+        #     _op.userinfo = AaUserInfo(self.config["SP_CONFIG"], _issuer, self.config["SAML"])
+        # else:
+        #     raise Exception("Unsupported userinfo source")
 
         try:
             _op.cookie_ttl = self.config["COOKIETTL"]
@@ -161,19 +164,33 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :raise ValueError: if more than one backend is configured
         """
 
-        # Replacing OP's baseurl is the only way I figured out to add backend name
-        # into the endpoint URLs
-        self.op.baseurl = '{}/{}/{}'.format(self.base_url, backend_names[0], self.name)
-
+        self.backendname = backend_names[0]
         provider_config = ("^.well-known/openid-configuration$", self.provider_config)
         client_registration = ("^{}/{}/{}".format(backend_names[0], self.name,
                                                   RegistrationEndpoint.url),
                                self.handle_client_registration)
         authorization = ("{}/{}/{}".format(backend_names[0], self.name, AuthorizationEndpoint.url),
                          self.handle_authn_request)
+        token = ("{}/{}/{}".format(backend_names[0], self.name, TokenEndpoint.url),
+                         self.token_endpoint)
 
-        url_map = [provider_config, client_registration, authorization]
+        url_map = [provider_config, client_registration, authorization, token]
         return url_map
+
+    def token_endpoint(self, context):
+        """
+        Handle token requests (served at /token).
+        :type context: satosa.context.Context
+        :rtype: oic.utils.http_util.Response
+
+        :param context: the current context
+        :return: HTTP response to the client
+        """
+        req = urlencode(context.request)
+        resp = self.op.token_endpoint(req, context.request_authorization)
+
+        return resp
+
 
     def provider_config(self, context):
         """
@@ -184,7 +201,12 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :param context: the current context
         :return: HTTP response to the client
         """
+
+        # Replacing OP's baseurl is the only way I figured out to add backend name
+        # into the endpoint URLs
+        self.op.baseurl = '{}/{}/{}'.format(self.base_url, self.backendname, self.name)
         config = self.op.providerinfo_endpoint()
+        self.op.baseurl = self.base_url
 
         return config
 
@@ -218,7 +240,26 @@ class FedOpenIDConnectFrontend(FrontendModule):
         pass
 
     def handle_authn_response(self, context, internal_resp):
-        pass
+        """
+        See super class method satosa.frontends.base.FrontendModule#handle_authn_response
+        :type context: satosa.context.Context
+        :type internal_response: satosa.internal_data.InternalResponse
+        :rtype oic.utils.http_util.Response
+        """
+        auth_req = AuthorizationRequest().deserialize(context.state[self.name]["oidc_request"])
+        attributes = self.converter.from_internal("openid", internal_resp.attributes)
+        self.user_db[internal_resp.user_id] = {k: v[0] for k, v in attributes.items()}
+
+        _cid = auth_req["client_id"]
+        cinfo = self.op.cdb[str(_cid)]
+
+        logger.debug("- authenticated -")
+        logger.debug("AREQ keys: %s", list(auth_req.keys()))
+
+        sid = self.op.setup_session(auth_req, AuthnEvent(internal_resp.user_id, "salt"), cinfo)
+        authnres = self.op.authz_part2(internal_resp.user_id, auth_req, sid)
+        del context.state[self.name]
+        return authnres
 
     def _handle_authn_request(self, context):
         """
