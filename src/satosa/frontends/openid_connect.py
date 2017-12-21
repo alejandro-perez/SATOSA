@@ -296,8 +296,8 @@ class OpenIDConnectFrontend(FrontendModule):
         internal_req = InternalRequest(hash_type, client_id, requester_name)
 
         internal_req.approved_attributes = self.converter.to_internal_filter(
-            "openid", self._get_approved_attributes(
-                self.provider.configuration_information["claims_supported"], authn_req))
+            "openid", self._get_approved_attributes(self.provider.configuration_information["claims_supported"],
+                                                    authn_req))
         return internal_req
 
     def handle_authn_request(self, context):
