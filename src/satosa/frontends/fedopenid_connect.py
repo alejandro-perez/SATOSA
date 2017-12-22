@@ -46,8 +46,12 @@ class FedOpenIDConnectFrontend(FrontendModule):
         self.op = self._op_setup()
 
     def _op_setup(self):
+        issuer = self.base_url
+        if issuer[-1] != '/':
+            issuer += '/'
+
         self.capabilities = {
-            "issuer": self.base_url,
+            "issuer": issuer,
             "response_types_supported": self.config["capabilities"].get("response_types_supported",
                                                                         ["id_token"]),
             "response_modes_supported": ["fragment", "query"],
@@ -66,51 +70,48 @@ class FedOpenIDConnectFrontend(FrontendModule):
         }
         # Client data base
         cdb = shelve_wrapper.open(self.config.get("client_db_path", "client_db"))
-        _issuer = self.base_url
-        if _issuer[-1] != '/':
-            _issuer += '/'
 
-        _sdb = create_session_db(_issuer, 'automover', '430X', {})
+        sdb = create_session_db(issuer, 'automover', '430X', {})
 
         kwargs = {"verify_ssl": self.config.get("VERIFY_SSL", True),
                   "capabilities": self.capabilities}
-        _op = Provider(_issuer, _sdb, cdb, None, UserInfo(self.user_db), AuthzHandling(),
+        op = Provider(issuer, sdb, cdb, None, UserInfo(self.user_db), AuthzHandling(),
                        verify_client, self.config["SYM_KEY"], **kwargs)
-        _op.cookie_ttl = 4 * 60  # 4 hours
-        _op.cookie_name = 'fedoic_cookie'
-        _op.debug = self.config.get("DEBUG", False)
+        op.cookie_ttl = 4 * 60  # 4 hours
+        op.cookie_name = 'fedoic_cookie'
+        op.debug = self.config.get("DEBUG", False)
 
         try:
-            jwks = keyjar_init(_op, self.config["jwks"]["key_defs"], kid_template="op%d")
+            jwks = keyjar_init(op, self.config["jwks"]["key_defs"], kid_template="op%d")
         except Exception as err:
             logger.error("Key setup failed: %s" % err)
-            _op.key_setup("static", sig={"format": "jwk", "alg": "rsa"})
+            op.key_setup("static", sig={"format": "jwk", "alg": "rsa"})
         else:
             f = open(self.config["jwks"]["path"], "w")
             f.write(json.dumps(jwks))
             f.close()
 
-            _op.keyjar.verify_ssl = kwargs["verify_ssl"]
+            op.keyjar.verify_ssl = kwargs["verify_ssl"]
 
-        for b in _op.keyjar[""]:
+        for b in op.keyjar[""]:
             logger.info("OC3 server keys: %s" % b)
 
         fconf = self.config["federation"]
-        sign_kj = own_sign_keys(fconf["signing_keys"]["path"], _op.baseurl,
+        sign_kj = own_sign_keys(fconf["signing_keys"]["path"], op.baseurl,
                                 fconf["signing_keys"]["key_defs"])
 
-        store_signed_jwks(_op.keyjar, sign_kj, fconf["signed_jwks"]["path"],
-                          fconf["signed_jwks"]["sign_alg"], iss=_op.baseurl)
+        store_signed_jwks(op.keyjar, sign_kj, fconf["signed_jwks"]["path"],
+                          fconf["signed_jwks"]["sign_alg"], iss=op.baseurl)
 
-        fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=fconf["signed_ms"]["path"],
+        fed_ent = create_federation_entity(iss=op.baseurl, ms_dir=fconf["signed_ms"]["path"],
                                            jwks_dir=fconf["fo_keys"]["path"],
                                            sig_keys=sign_kj,
                                            sig_def_keys=fconf["signing_keys"]["key_defs"])
-        fed_ent.signer.signing_service = InternalSigningService(_op.baseurl, sign_kj)
-        _op.federation_entity = fed_ent
-        fed_ent.httpcli = _op
+        fed_ent.signer.signing_service = InternalSigningService(op.baseurl, sign_kj)
+        op.federation_entity = fed_ent
+        fed_ent.httpcli = op
 
-        return _op
+        return op
 
     def register_endpoints(self, backend_names):
         """
@@ -181,11 +182,11 @@ class FedOpenIDConnectFrontend(FrontendModule):
         """
 
         # Temporarily replacing OP's baseurl is the only way I figured out to add backend name
-        # into the endpoint URLs
-        backup = self.op.baseurl
+        # into the endpoint URLs without messing up with the issuer. This is due to an error
+        # in oic <= 0.12.0.
         self.op.baseurl = '{}/{}/{}'.format(self.base_url, self.backendname, self.name)
         config = self.op.providerinfo_endpoint()
-        self.op.baseurl = backup
+        self.op.baseurl = self.op.name
         return config
 
     def handle_client_registration(self, context):
@@ -225,10 +226,8 @@ class FedOpenIDConnectFrontend(FrontendModule):
                 self.op.keyjar.add(_cid, cinfo["jwks_uri"])
 
         hash_type = oidc_subject_type_to_hash_type(cinfo.get("subject_type", "pairwise"))
-
         client_name = cinfo.get("client_name")
         requester_name = [{"lang": "en", "text": client_name}] if client_name else None
-
         internal_req = InternalRequest(hash_type, _cid, requester_name)
         internal_req.approved_attributes = self.converter.to_internal_filter(
             "openid", self._get_approved_attributes(authn_req))
@@ -294,7 +293,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :param context: the current context
         :return: HTTP response to the client
         """
-        jwks = ""
+        jwks = "{}"
         with open(self.config["jwks"]["path"], "r") as f:
             jwks = f.read()
         return Response(jwks, content="application/json")
@@ -308,7 +307,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
         :param context: the current context
         :return: HTTP response to the client
         """
-        jwks = ""
+        jwks = "{}"
         with open(self.config["federation"]["signed_jwks"]["path"], "r") as f:
             jwks = f.read()
         return Response(jwks, content="application/json")
