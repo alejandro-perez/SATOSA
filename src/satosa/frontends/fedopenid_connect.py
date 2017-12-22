@@ -43,24 +43,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
         super().__init__(auth_req_callback_func, internal_attributes, base_url, name)
         self.config = conf
         self.user_db = {}
-
-        _op = self._op_setup()
-        fconf = conf["federation"]
-        sign_kj = own_sign_keys(fconf["signing_keys"]["path"], _op.baseurl,
-                                fconf["signing_keys"]["key_defs"])
-
-        store_signed_jwks(_op.keyjar, sign_kj, fconf["signed_jwks"]["path"],
-                          fconf["signed_jwks"]["sign_alg"], iss=_op.baseurl)
-
-        fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=fconf["signed_ms"]["path"],
-                                           jwks_dir=fconf["fo_keys"]["path"],
-                                           sig_keys=sign_kj,
-                                           sig_def_keys=fconf["signing_keys"]["key_defs"])
-        fed_ent.signer.signing_service = InternalSigningService(_op.baseurl, sign_kj)
-        _op.federation_entity = fed_ent
-        fed_ent.httpcli = _op
-
-        self.op = _op
+        self.op = self._op_setup()
 
     def _op_setup(self):
         self.capabilities = {
@@ -111,6 +94,21 @@ class FedOpenIDConnectFrontend(FrontendModule):
 
         for b in _op.keyjar[""]:
             logger.info("OC3 server keys: %s" % b)
+
+        fconf = self.config["federation"]
+        sign_kj = own_sign_keys(fconf["signing_keys"]["path"], _op.baseurl,
+                                fconf["signing_keys"]["key_defs"])
+
+        store_signed_jwks(_op.keyjar, sign_kj, fconf["signed_jwks"]["path"],
+                          fconf["signed_jwks"]["sign_alg"], iss=_op.baseurl)
+
+        fed_ent = create_federation_entity(iss=_op.baseurl, ms_dir=fconf["signed_ms"]["path"],
+                                           jwks_dir=fconf["fo_keys"]["path"],
+                                           sig_keys=sign_kj,
+                                           sig_def_keys=fconf["signing_keys"]["key_defs"])
+        fed_ent.signer.signing_service = InternalSigningService(_op.baseurl, sign_kj)
+        _op.federation_entity = fed_ent
+        fed_ent.httpcli = _op
 
         return _op
 
