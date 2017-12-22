@@ -82,7 +82,7 @@ class FedOpenIDConnectFrontend(FrontendModule):
             "scopes_supported": self.config["capabilities"].get("scopes_supported", ["openid"])
         }
         # Client data base
-        cdb = shelve_wrapper.open("client_db")
+        cdb = shelve_wrapper.open(self.config.get("client_db_path", "client_db"))
         _issuer = self.base_url
         if _issuer[-1] != '/':
             _issuer += '/'
