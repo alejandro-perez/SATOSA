@@ -15,8 +15,9 @@ setup(
     packages=find_packages('src/'),
     package_dir={'': 'src'},
     install_requires=[
-        "pyop==2.0.5",
+        "pyop==2.0.8",
         "pysaml2==4.5.0",
+        "fedoidc>=0.5.1",
         "pycryptodomex",
         "requests",
         "PyYAML",
